@@ -1,11 +1,15 @@
 # Local data and generated model artifacts
 Breast_cancer_data.csv
+/models/
+*.joblib
 breastcancer.pkl
 sc.pkl
 
 # Python/Jupyter local state
 __pycache__/
 *.py[cod]
+.pytest_cache/
+.ruff_cache/
 .ipynb_checkpoints/
 .venv/
 venv/

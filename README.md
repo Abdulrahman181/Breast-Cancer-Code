@@ -1,24 +1,21 @@
-# Breast Cancer Classification (educational notebook)
+# Breast-cancer classification (educational example)
 
-This repository contains a Jupyter notebook illustrating a Random Forest classification workflow over five numeric input features. It is an educational example only, **not a medical device or diagnostic tool**. Do not use its outputs for screening, diagnosis, treatment, or decisions about an individual.
+This repository is a small, reproducible **educational** example of a Random Forest classifier. It is **not a medical device, diagnostic tool, or clinically validated model**. Do not use its code, predictions, or metrics for screening, diagnosis, treatment, triage, or decisions about an individual. No external validation, clinical utility, or performance claim is made.
 
-## Data required
+## Data and provenance
 
-The notebook expects `Breast_cancer_data.csv` in the repository root. The CSV is **not included**. The original repository does not document the dataset's source, license, provenance, or the meaning/mapping of values in `diagnosis`; these details cannot be verified here. Obtain the data only from a source you are authorized to use, and verify its license and class definitions yourself. Do not commit personal or otherwise sensitive data.
+The repository does **not** include a dataset. The original source does not establish dataset provenance, authorization, license, or the meaning of the `diagnosis` class values. Obtain data only from a source you are authorized to use; independently verify its source, license, and label definitions. The code deliberately does not infer that a class means “benign” or “malignant.” Do not commit patient, personal, confidential, or otherwise sensitive data.
 
-The notebook explicitly selects these columns, in this order:
+Provide a CSV with the following required columns; extra columns are ignored:
 
-1. `mean_radius`
-2. `mean_texture`
-3. `mean_perimeter`
-4. `mean_area`
-5. `mean_smoothness`
+- Features, in this order: `mean_radius`, `mean_texture`, `mean_perimeter`, `mean_area`, `mean_smoothness`
+- Target: `diagnosis`, with at least two non-missing classes
 
-It also requires a `diagnosis` target column with at least two classes. The notebook validates these requirements before training. The class meanings are intentionally not inferred or labeled as “benign” or “malignant,” because the repository does not establish their mapping.
+Features must be numeric and finite. The loader rejects missing required values, duplicate headers, and incompatible inputs. By default the notebook looks for `Breast_cancer_data.csv` in the current working directory. Set `BREAST_CANCER_DATA` to an authorized CSV path outside the repository to use another location.
 
 ## Setup and run
 
-Use Python 3.10 or 3.11 in a virtual environment. From the repository root:
+Use Python 3.10, 3.11, or 3.12. From the repository root:
 
 ```bash
 python -m venv .venv
@@ -28,10 +25,25 @@ python -m pip install -r requirements.txt
 jupyter lab "Breast Cancer Code.ipynb"
 ```
 
-Place your authorized `Breast_cancer_data.csv` in the repository root before running the notebook from top to bottom. `requirements.txt` constrains compatible package ranges, but is not a fully resolved lockfile; exact environments may vary within those ranges.
+The notebook validates inputs, then makes deterministic, stratified, disjoint train/validation/test partitions (approximately 65%/15%/20%; exact row counts depend on dataset size and class proportions). It fits the fixed model on training rows only, reports aggregate metrics on validation rows, then evaluates the held-out test partition once. The validation partition is available for future model selection; this example does not tune on it. If you change modeling choices after viewing test results, that test partition is no longer an unbiased final evaluation. Small or imbalanced datasets may not support all three stratified partitions and will be rejected with an actionable error.
 
-The notebook uses a stratified holdout split (`random_state=0`) and displays a confusion matrix, per-class report, and accuracy for that split. These are educational, dataset-specific results only. The dataset is absent here, so the notebook cannot be run end to end from a clean clone and no performance claim is validated by this repository change. Previously saved notebook outputs were cleared because they did not correspond reliably to the current source and could not be reproduced from the repository.
+The split is row-wise because the repository does not define patient, site, or time identifiers. If rows are repeated measurements or otherwise grouped, related samples could cross partitions; use an appropriate group/time split and independent external validation for a real research study. This repository cannot verify whether the supplied data has such structure.
 
-## Generated files and safety
+The notebook's metrics depend on the local dataset, its verified labels, and the chosen split; they are not evidence of generalization or clinical effectiveness. No individual records or paired predictions are printed. The notebook is not run end-to-end in a clean checkout because the dataset is not supplied.
 
-Running the final cells writes `breastcancer.pkl` and `sc.pkl` locally; these artifacts are ignored by Git. Only load pickle files you created or otherwise fully trust: unpickling data from an untrusted source can execute code. The notebook does not load pickle files.
+## Reusable code, artifacts, and tests
+
+`breast_cancer_model.py` contains input validation, deterministic splitting, training/evaluation, and artifact helpers. The fitted estimator is a Random Forest pipeline; feature scaling is omitted because it is not needed by this estimator. Model fitting receives only the training partition. Artifacts include an explicit feature/target schema and runtime version metadata and are atomically written to `models/breast_cancer_model.joblib` by default with mode `0600` on POSIX systems; on Windows, effective protection follows the destination directory's filesystem ACLs. Set `BREAST_CANCER_ARTIFACT` to change the local output path. Dataset and model artifacts are ignored by Git.
+
+**Only load artifacts you created or fully trust.** `joblib`/pickle deserialization can execute code. Artifacts are local educational outputs, are not a secure model-serving format, and should not be shared as if they were clinically approved.
+
+To run tests and static checks (tests use generated toy rows only, not a supplied or clinical dataset):
+
+```bash
+python -m pip install -r requirements-dev.txt
+python -m compileall -q breast_cancer_model.py tests
+python -m ruff check breast_cancer_model.py tests
+python -m pytest
+```
+
+GitHub Actions runs these checks on Python 3.10, 3.11, and 3.12. Dependency ranges are intentionally bounded but are not a fully resolved lockfile; exact environments may vary.
