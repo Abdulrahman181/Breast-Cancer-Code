@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+.venv/
+venv/
+
+# Local/private data and generated model artifacts
+*.csv
+*.pkl
+*.joblib
+artifacts/
+outputs/
+
+# OS/editor files
+.DS_Store
+.vscode/
+.idea/
