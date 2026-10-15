@@ -8,10 +8,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
+import sys
+from numbers import Real
 from pathlib import Path
 from typing import Any
 
 import joblib
+import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import (
@@ -26,6 +30,7 @@ from sklearn.metrics import (
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
+from sklearn.utils.validation import check_is_fitted
 
 FEATURE_COLUMNS = (
     "mean_radius",
@@ -55,6 +60,11 @@ def load_dataset(path: str | Path) -> pd.DataFrame:
 
 def validate_dataset(dataset: pd.DataFrame) -> None:
     """Validate schema and labels before any split or model fitting."""
+    if not isinstance(dataset, pd.DataFrame):
+        raise TypeError("dataset must be a pandas DataFrame")
+    if not dataset.columns.is_unique:
+        duplicates = dataset.columns[dataset.columns.duplicated()].unique().tolist()
+        raise ValueError(f"Dataset contains duplicate column names: {duplicates}")
     required = set(FEATURE_COLUMNS) | {TARGET_COLUMN}
     missing = sorted(required.difference(dataset.columns))
     if missing:
@@ -66,14 +76,21 @@ def validate_dataset(dataset: pd.DataFrame) -> None:
     ]
     if non_numeric:
         raise ValueError(f"Feature columns must be numeric: {', '.join(non_numeric)}")
-    if dataset[list(required)].isna().any().any():
+    required_columns = [*FEATURE_COLUMNS, TARGET_COLUMN]
+    if dataset[required_columns].isna().any().any():
         raise ValueError(
             "Dataset contains missing values in required columns; impute explicitly first."
         )
-    labels = set(dataset[TARGET_COLUMN].unique())
-    if not labels.issubset({0, 1}):
+    feature_values = dataset.loc[:, FEATURE_COLUMNS].to_numpy(dtype=float)
+    if not np.isfinite(feature_values).all():
+        raise ValueError("Feature columns must contain only finite numeric values.")
+    invalid_labels = dataset.loc[
+        ~dataset[TARGET_COLUMN].isin((0, 1)), TARGET_COLUMN
+    ].unique()
+    if len(invalid_labels):
+        found = ", ".join(repr(value) for value in invalid_labels)
         raise ValueError(
-            f"{TARGET_COLUMN} must contain only binary 0/1 labels; found {sorted(labels)}"
+            f"{TARGET_COLUMN} must contain only binary 0/1 labels; found [{found}]"
         )
     if dataset[TARGET_COLUMN].nunique() < 2:
         raise ValueError("Dataset must contain both diagnosis classes for a stratified evaluation.")
@@ -103,6 +120,11 @@ def build_pipeline(random_state: int = 0) -> Pipeline:
 
 def evaluate_model(model: Pipeline, x_test: pd.DataFrame, y_test: pd.Series) -> dict[str, Any]:
     """Return test metrics only; callers must fit the model on training data first."""
+    check_is_fitted(model)
+    if len(x_test) != len(y_test):
+        raise ValueError("x_test and y_test must contain the same number of rows")
+    if len(y_test) == 0 or y_test.nunique() != 2:
+        raise ValueError("y_test must contain both diagnosis classes for ROC AUC evaluation")
     predictions = model.predict(x_test)
     probabilities = model.predict_proba(x_test)[:, 1]
     return {
@@ -125,6 +147,18 @@ def train_and_evaluate(
 ) -> tuple[Pipeline, dict[str, Any]]:
     """Split with stratification, fit the pipeline, and evaluate once on held-out data."""
     validate_dataset(dataset)
+    if isinstance(test_size, bool) or not isinstance(test_size, Real):
+        raise ValueError("test_size must be a numeric value strictly between 0 and 1")
+    test_size = float(test_size)
+    if not 0 < test_size < 1:
+        raise ValueError("test_size must be a numeric value strictly between 0 and 1")
+    test_rows = math.ceil(len(dataset) * test_size)
+    train_rows = len(dataset) - test_rows
+    if test_rows < 2 or train_rows < 2:
+        raise ValueError(
+            "test_size must leave at least two rows in both train and test partitions "
+            "for binary stratified evaluation"
+        )
     x = dataset.loc[:, FEATURE_COLUMNS]
     y = dataset[TARGET_COLUMN].astype(int)
     x_train, x_test, y_train, y_test = train_test_split(
@@ -141,9 +175,21 @@ def train_and_evaluate(
 
 def save_model(model: Pipeline, path: str | Path) -> None:
     """Persist a fitted pipeline, creating its parent directory when needed."""
+    check_is_fitted(model)
     output_path = Path(path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(model, output_path)
+
+
+def _fraction(value: str) -> float:
+    """Parse a CLI fraction and reject values that cannot form a valid split."""
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a number strictly between 0 and 1") from exc
+    if not 0 < parsed < 1:
+        raise argparse.ArgumentTypeError("must be a number strictly between 0 and 1")
+    return parsed
 
 
 def parse_args() -> argparse.Namespace:
@@ -155,21 +201,23 @@ def parse_args() -> argparse.Namespace:
         help="Output path for the fitted pipeline",
     )
     parser.add_argument("--random-state", type=int, default=0)
-    parser.add_argument("--test-size", type=float, default=0.25)
+    parser.add_argument("--test-size", type=_fraction, default=0.25)
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    if not 0 < args.test_size < 1:
-        raise ValueError("--test-size must be between 0 and 1")
-    dataset = load_dataset(args.data)
-    model, metrics = train_and_evaluate(
-        dataset,
-        test_size=args.test_size,
-        random_state=args.random_state,
-    )
-    save_model(model, args.model_out)
+    try:
+        dataset = load_dataset(args.data)
+        model, metrics = train_and_evaluate(
+            dataset,
+            test_size=args.test_size,
+            random_state=args.random_state,
+        )
+        save_model(model, args.model_out)
+    except (FileNotFoundError, OSError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     print(json.dumps({"metrics": metrics, "model_path": str(args.model_out)}, indent=2))
     return 0
 

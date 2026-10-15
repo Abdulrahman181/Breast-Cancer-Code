@@ -25,6 +25,11 @@ python breast_cancer_model.py \
 
 The command prints metrics for the held-out test partition and writes one fitted pipeline. It does not download data, fabricate rows, or claim reproducibility without the input data and dependency versions.
 
+Validation rejects missing/duplicate required columns, non-numeric or non-finite features,
+missing values, non-binary labels, and datasets too small for a two-class stratified split.
+Saved artifacts are fitted scikit-learn pipelines; only save artifacts produced by this
+project or another trusted source because `joblib` files can execute code when loaded.
+
 ## Methodology
 
 - The split is a **stratified** 75/25 train/test split with `random_state=0` by default.
@@ -42,9 +47,13 @@ Install runtime and test dependencies, then run checks from the repository root:
 
 ```bash
 python -m pip install -r requirements.txt
+python -m pip install -r requirements-dev.txt
 python -m unittest discover -s tests -v
+python -m pytest -q
 ruff check .
 python -m compileall -q breast_cancer_model.py tests
 ```
 
-The repository does not commit CSV files, pickles, joblib files, or generated output. Do not use this project for diagnosis or treatment decisions.
+The repository does not commit CSV files, pickles, joblib files, or generated output. There
+is no API or UI in this repository; the CLI and notebook are the supported entry points.
+Do not use this project for diagnosis or treatment decisions.
